@@ -1,4 +1,3 @@
-
 \documentclass[conference]{IEEEtran}
 %\documentclass{ieeeconf} 
 
@@ -54,24 +53,15 @@
 \maketitle
 \begin{abstract}
 
-  Security Enhanced Linux, popularly known as SELinux \cite{s1} is a
-  Linux operating system feature that provides fine grained access
-  control to system resources. Our goal is to propose and analyze
-  various parallel programming techniques to optimize its performance
-  for a multi-processor platform like Cell Broadband Engine (CBE). We
-  study the SELinux architecture and identify specific components
-  which cause major performance bottlenecks and experimentally
-  validate our hypothesis. We perform several experiments to compare
-  the performance of the proposed techniques under different
-  conditions and discuss the intricacies and challenges of our
-  implementation. Our results show that, data parallelism for security
-  validations in general can be exploited for parallel executions, but
-  the gain in efficiency depend on design of the application and the
-  hardware platform. Based on the technique and the parameters used,
-  we get an efficiency gain between -38\% to +43\%.  We use a Cell
-  Broadband Engine processor running SELinux for our experiments, but
+Security Enhanced Linux, popularly known as SELinux \cite{s1} is a 
+Linux operating system feature that provides fine grained access 
+control to system resources. Our goal is to optimize the performance of SELinux for a multi-core processor and analyze the potency of our approach. We study the architecture of SELinux to identify specific components that cause performance bottlenecks and empirically validate our claims. We propose various techniques to delegate processor intensive computations to multiple cores. We perform several experiments to evaluate the performance of our approach under different conditions and discuss the intricacies of our implementation. 
+Our results show that software applications with security validations, in general have an inherent data parallelism which can be exploited for concurrent execution, but
+  the gain in efficiency depends on design of the application and the
+  hardware platform. In addition, we find that the gain in efficiency is also influenced by the optimization technique and the system configuration.   We use a Cell
+  Broadband Engine (CBE) processor running SELinux for our experiments, but
   our approach can be easily adapted to applications with a similar
-  security validation framework running on other multicore platforms.
+  security validation framework running on other multi-core platforms.
 \end{abstract}
 
 {\bf Keywords:} Parallel Algorithms, Security, Operating Systems,
@@ -84,77 +74,59 @@ Security Enhanced Linux, Cell Broadband Engine
 %
 %----------The bibliography-------
 % 
-\section{Introduction}\label{background}
+\section{Introduction}\label{intro}
 SELinux is a Linux operating system feature that implements the
 Mandatory Access Control (MAC) security paradigm. MAC operates on a
-set of rules to constrain a process from performing a particular
-operation on a resource (file, directory, etc). These rules form the
+set of rules to constrain a `process' from performing a particular
+operation on a resource (e.g. file, directory, etc). These rules form the
 security policy of a system and is centrally controlled by an
-administrator. In SELinux, each resource and process is assigned a
+administrator. Each resource and process is assigned a
 label called the \emph{security context} (SC). Thus a rule simply
 states if one SC is allowed to perform an operation on another SC.
 
-For our analysis we use the CBE processor since it is
-known to outperform existing processors by almost an order of
-magnitude \cite{CBEArch}. The CBE consists of one Power Processing
-Element (PPE) and eight Synergistic Processing Elements (SPE)
-\cite{CBEArch}.  The SPEs are designed specifically to perform
-processor intensive computations. A SPE by itself can not initiate a
-computation, only a PPE can initialize an SPE by loading the desired
-executable binary into the SPEs' local cache. In addition, data
-required by an SPE during execution requires the use of Direct Memory
-Access (DMA) controllers. At the time of SPE initialization, the PPE
-sends an address of a location in main memory which the SPE can use as
-a base address to read / write data. In order to access contents of
-the main memory, the SPE makes a DMA request with the base address,
-the number of bytes and the type of access (read or write). Each SPE
-has one or more dedicated DMA engines that perform data transfers to
-and from main memory to SPEs' local cache, in concurrent with program
-execution. In our implementation we use the CBE SDK which provides
-flexible APIs which can perform both asynchronous and synchronous DMA
-requests.
+One of the major drawbacks of SELinux is the performance overhead associated with it. The system performance reduces by about 7\% when SELinux is enabled and in certain cases like networked systems, the
+overhead may be much higher \cite{selinuxFAQ}. In addition, the worst
+case performance could be unacceptably low depending on the number of
+rules in the security policy \cite{report}. Our goal is to optimize the performance of SELinux for a multi-core processor and analyze the effectiveness of our approach.
 
-%summary
-In this paper we first study the architecture of SELinux to determine
+In this paper, we first study the architecture of SELinux to determine
 the scope for introducing data parallelism. We pin-point
 the specific components within SELinux that cause performance
-bottlenecks. Based on our analysis we propose various techniques
-that can be incorporated to modify the architecture for parallel
-execution. Each of these techniques exploit data parallelism, but
-using different number of processors and other strategies. We
-perform several experiments to evaluate and compare the performance of
-the proposed techniques under different conditions. We briefly discuss
-the intricacies and challenges of our implementation. Finally, we
-present the results of our experiment and draw inferences.
+bottlenecks and empirically validate our claims. Based on our analysis, we propose various techniques
+to modify the SELinux architecture for parallel
+execution. Our work takes a high level approach so that our proposed techniques can also be applied to other large scale security software. More specifically, we optimize the general process of security validations which involves verifying the credibility of a given entity against a set of trusted entities. We
+perform several experiments to evaluate the performance of our approach under different conditions. For our experiments, we use the Cell Broad Engine (CBE) multi-core processor since it is
+known to outperform existing processors by almost an order of magnitude \cite{CBEArch}. 
 
 %Sections organized
-The rest of the paper is organized as follows. Section \ref{design}
-studies the design of SELinux and proposes various techniques to
-achieve data parallelism during security validation. In Section
-\ref{expr}, we discuss the experimental setup and implementation
-details. The results and analysis of our experiments are given in
-Section \ref{results}. We conclude with scope for future work in
+The rest of the paper is organized as follows. In Section \ref{background}, we discuss the background and state of art related to our work. In Section \ref{design}, we
+study the architecture of SELinux to identify performance bottlenecks and propose various techniques to
+achieve data parallelism. In Section \ref{expr}, we discuss our experimental setup, intricacies / challenges of our implementation, results and inferences. We conclude with scope for future work in
 Section \ref{conclusion}.
 
-\section{Background and Related Work}\label{related}
+\section{Background and Related Work}\label{background}
 
 Security has been an integral part of every software
-application and a focus of Networking and Operating Systems research. % Software security has been the prime focus of network and
-% operating system research.
+application and a primary focus of Networking and Operating Systems research. 
 With the advent of cloud computing,
 security has gained prominence like never before, since these
 applications can now be accessible from anywhere in the world and thus
 are more vulnerable than their stand-alone counterparts. However,
-security comes with a steep price of loss in efficiency. Since
-robustness is the utmost priority in developing a security feature,
-efficiency takes a back seat. In modern day systems, even an
+security comes with a steep price in the form of loss in efficiency. But when it comes to building a security feature, efficiency is generally given less importance over robustness. This trend has led to significant performance loss in modern day systems, where even an
 anti-virus application can slow down the system by more than fifty
 percent. This applies even to operating systems' inbuilt security
 features like SELinux \cite{s1}, RSBAC \cite{s2}, TOMOYO 
-Linux\footnote{http://tomoyo.sourceforge.jp}, AppArmor\footnote{http://wiki.apparmor.net}. One common aspect of security
-validations includes verifying the credibility of data using a set of
-trusted entities. In this paper we aim to optimize security
-validations in SELinux by modifying its design for parallel execution.
+Linux\footnote{http://tomoyo.sourceforge.jp}, AppArmor\footnote{http://wiki.apparmor.net}.
+
+With processor clock speed reaching a saturation, extensive research is underway in optimizing existing software applications for multi-core processors. Our work aims to exploit data parallelism in SELinux to optimize its performance for multi-core processors. There has not been any size-able effort in optimizing the performance
+of SELinux \cite{selinuxFAQ}. Although there has been some work on
+optimizing SELinux for 32 or more processors, but no further details
+exist \cite{selinuxFAQ}. There have been attempts to extend the SELinux functionality to a distributed setting \cite{tresys}.  Brindle, et al. \cite{tresys} present a distributed policy
+management architecture and address several challenges like
+synchronization of policy updates, managing multi-system policy,
+etc. In this paper, we focus on optimizing SELinux for a single system
+with multiple processors (or cores), rather than an inter-connected distributed
+system, which could be a scope for future work. The multi-core optimization is also based on implementing parallelized data-structures \cite{ll1}.
 
 SELinux is based on the Flux Advanced Security Kernel (Flask)
 architecture \cite{flask}. It consists of two major components, the
@@ -185,53 +157,40 @@ in order to maintain a smaller chain length \cite{selinuxBook}. Hence,
 the \emph{Object Manager} can bypass the \emph{Security Server} when a requested
 access decision is available in the AVC.
 
-Although AVC significantly improves the performance of access
-decisions, it has been found that the overall performance overhead of
-SELinux is about 7\% and in certain cases like networked systems the
-overhead may be much higher \cite{selinuxFAQ}. In addition, the worst
-case performance could be unacceptably slow depending on the number of
-rules in the security policy \cite{report}. We show in Section
-\ref{results} that the decision making logic is one of the major
-performance bottlenecks in SELinux. Therefore, our aim is to optimize
-the security server for parallel execution and evaluate its
-performance on a multi-processor platform.
+We evaluate the performance of SELinux using a Cell Broadband Engine (CBE) multi-core processor which consists of one Power Processing
+Element (PPE) and eight Synergistic Processing Elements (SPE)
+\cite{CBEArch}.  The SPEs are designed specifically to perform
+processor intensive computations. A SPE by itself can not initiate a
+computation, only a PPE can initialize an SPE by loading the desired
+executable binary into the SPEs' local cache. In addition, data
+required by an SPE during execution requires the use of Direct Memory
+Access (DMA) controllers. At the time of SPE initialization, the PPE
+sends an address of a location in main memory which the SPE can use as
+a base address to read / write data. In order to access contents of
+the main memory, the SPE makes a DMA request with the base address,
+the number of bytes and the type of access (read or write). Each SPE
+has one or more dedicated DMA engines that perform data transfers to
+and from main memory to SPEs' local cache, in concurrent with program
+execution. In our implementation we use the CBE SDK which provides
+flexible APIs which can perform both asynchronous and synchronous DMA
+requests.
 
-There has not been any size-able effort in optimizing the performance
-of SELinux \cite{selinuxFAQ}. However, there has been some work on
-optimizing SELinux for 32 or more processors, but no further details
-exist \cite{selinuxFAQ}. A part of the optimization process involves
-implementing parallelized data-structures \cite{ll1}. SELinux is known
-to support inter-system and remote access control capabilities, but
-policy management in a networked environment or a distributed system
-is not obvious \cite{tresys}. To extend its functionality to a
-distributed setting, \cite{tresys} present a distributed policy
-management architecture and address several challenges like
-synchronization of policy updates, managing multi-system policy,
-etc. In this paper, we focus on optimizing SELinux for a single system
-with multiple processors, rather than a inter-connected distributed
-system which could be a scope for future work.
-
-We devise a set of experiments to evaluate the performance of our
-techniques. These experiments require us to produce several security
+Performing large scale experiments using SELinux requires the creation of several security
 policies with different configurations. But creation of policies is a
-hard and tedious process. It general, it is a job of system
-administrators to write these policies which typically involve
-thousands of rules. Another issue with maintaining large security
+hard and tedious process. In general, it is a job of system
+administrators to write these policies which typically contain
+thousands of rules. Another issue with manual maintenance of large security
 policies is the detection of loopholes which could lead to possible
 security breach. Several tools have been developed to automate the
 process of SELinux policy configuration \cite{selinuxTools}. While
 these tools mainly provide effective analysis of security policies
 \cite{selinuxTools}, policy creation is still a manual
-process. However, our experiments require policies with thousands of
-rules which may not be feasible when created manually. Therefore, we
-develop the SELinux rule-set using a number of Unix shell-scripts to
-automatically generate policies with a specific access permission
+process. Therefore, we
+implement a set of Unix shell-scripts to
+automatically generate SELinux security policies with a specific access permission
 pattern
 \footnote{http://selinuxoncbe.svn.sourceforge.net/viewvc/selinuxoncbe/trunk/src/policies/scripts/}.
 
-\eat{
-TBD some technique on how we optimize and the related work.. basically data structure level
-}
 
 \section{Design}\label{design}
 
@@ -293,7 +252,7 @@ strategy, and compare their relative performances (runtime).
   in main memory\eat{ instead of the base address of the data}. This
   location is updated with the base address of the next chunk of data,
   every time after the SPE reads it. The details of the implementation
-  are given in Section \ref{expr}
+  are given in Section \ref{impl}.
 
 \item \textbf{Six Processing Units ($6U$)}: This technique is similar
   to $3U$, except that two dedicated SPEs per component of the
@@ -342,11 +301,11 @@ configuration file. The size of AVC, plays an important role in the performance 
 the performance both in the presence and absence of AVC. For
 simplicity, we run our experiments with two different sizes of AVC -
 512 and 1, which allows us to effectively quantify the performance of
-security context validation with and without AVC respectively. A maximum size of 512 entries in AVC has been found to be optimal in order to maintain smaller chain lengths \ref{selinuxBook}.
+security context validation with and without AVC respectively. A maximum size of 512 entries in AVC has been found to be optimal in order to maintain smaller chain lengths \cite{selinuxBook}.
 
 Broadly, our experiments can be divided into two phases. In the first phase, we evaluate the performance of SELinux using only the single core (PPE) of the CBE processor. This involves measuring the performance with different number of rules in the policy configuration file. We will use this to establish a performance benchmark and to show that the security context validation step is indeed highly processor intensive. In the second phase, we compare the performance of the SIMD techniques proposed in Section \ref{design} with the single core performance. In each phase the experiments are performed with the presence and absence of AVC. 
 
-\subsection{Implementation Details}
+\subsection{Implementation Details}\label{impl}
 
 %Since the CBE SDK (version 3.1) does not support kernel space libraries, we perform our experiments using only the SELinux user space libraries.
 In SELinux, the process of associating a security context to a resource on the file system is called \emph{labeling}. When the system boots
@@ -447,15 +406,11 @@ security, little has been done to improve the delay in
 performance that it causes. To deal with the demand of growing
 security requirements, modern day operating systems provide
 sophisticated in-built security features like the Security Enhanced
-Linux (SElinux). We hypothesized that security validations in general,
-can be optimized by exploiting their inherent data parallelism and
-empirically validated our claims for SELinux. We proposed several
-techniques for optimizing the performance of security validations in
-SELinux using CBE microprocessor.
+Linux (SElinux). These often result in unacceptably low system performance. We hypothesized that security validations in general,
+can be optimized by exploiting their inherent data parallelism. We ran several experiments to evaluate the performance of SElinux when modified for concurrent execution. Our experimental setup consisted of automatically generating security policies and measuring the running time involved in SELinux security context validation, on a CBE processor. We obtained contrasting results wherein both gain and loss in efficiency were observed depending on the technique and system configuration. Our investigations revealed that performing computations on the SPE came with a significant overhead in terms of loading time and data transfers. However, we found that the overhead in SPEs can be overcome by utilizing them more often and for longer duration.
 
-Our experimental setup consisted of automatically generating and
-analyzing policies. The performance comparison was made under two
-different parameters, the number of rules in the policies and the
+\eat{ The performance comparison was made under two
+different parameters - the number of rules in the policies and the
 presence / absence of AVC in SELinux security server module. Our
 results showed that the presence of AVC ensured the performance
 overhead was within an acceptable limit, but this did not hold for
@@ -464,12 +419,14 @@ contrasting results with the use of parallel execution techniques, in
 fact a loss in performance when compared to single core performance in
 the presence of AVC. Whereas a gain in performance of up to 43\% was
 measured with one of the multi-processor techniques in the absence of
-AVC. Our investigation revealed that Synergistic Processing Element
+AVC. Our investigations revealed that Synergistic Processing Element
 (SPE) execution had a significant overhead in terms of loading time
 and data transfers. However, in the absence of AVC, the SPEs were
 utilized more often and long enough to overcome the delay due to
-loading and data transfers and thereby register and net gain in
-efficiency.
+loading and data transfers and thereby register a net gain in
+efficiency.}
+
+In general, software applications designed for a uniprocessor system cannot be easily optimized for parallel computing and even when modified the gain in efficiency may not be significant. The problem is prominent in security related applications, since the priority is robustness over efficiency. We believe our work will inspire future research in building applications that harness the potential of multi-core processors. 
 
 One obvious extension of our work is to apply the proposed techniques
 to other security features / applications like TOMOYO Linux, SMACK\footnote{http://schaufler-ca.com/}, etc. and compare their performances. Evaluating performance on different
@@ -477,13 +434,9 @@ multi-core architectures like GPGPUs, modern PCs and mobile devices
 could give greater insights into the effectiveness of the approach
 e.g. performance analysis of
 \textbf{SEAndroid}\footnote{http://selinuxproject.org/page/SEAndroid},
-a MAC mechanism for Android platform.  Another interesting direction could be to analyse
+a MAC mechanism for Android platform.  Another interesting direction could be to analyze
  the proposed techniques in distributed platforms like Beowulf
  clusters and grid networks.
-
-
 \bibliographystyle{IEEEtran}
 \bibliography{references}
-
-
 \end{document}
